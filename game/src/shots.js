@@ -59,7 +59,17 @@ export function autopilot(flight, mission, hooks) {
     const dropDist = Math.hypot(obj.x - flight.x, obj.z - flight.z);
     const targetSpeed = dropDist > 350 ? 48 : 32;
     const input = steerTo(flight, obj.x, obj.z, terrainHeight(obj.x, obj.z) + 55, targetSpeed, 0.8);
-    if (dropDist < 12 && flight.y <= DROP_MAX_ALT) input.drop = true;
+    // Release when the parcel would actually land on the circle: the
+    // parcel keeps the aircraft's speed and drifts with the wind, so
+    // the release point is well before the target, not over it. The
+    // prediction is the same physics the mission scores with.
+    // One parcel at a time: drop is a level signal, not an edge, so
+    // without this the autopilot would dump every parcel in a second.
+    if (flight.y <= DROP_MAX_ALT && mission.predictImpactPoint && mission.state.parcelsInFlight.length === 0) {
+      const impact = mission.predictImpactPoint(flight);
+      const impactDist = Math.hypot(impact.x - obj.x, impact.z - obj.z);
+      if (impactDist <= obj.radius) input.drop = true;
+    }
     return input;
   }
   if (obj !== null && obj.kind === 'land') {
@@ -184,35 +194,43 @@ export function stageShot(name, flight, mission, hooks) {
     return { screen: 'play', note: 'ring 3, just passed' };
   }
   if (name === 'drop') {
-    // Stop on the approach, wings level, marker ahead — not at the
-    // drop itself: the aircraft releases the parcel while still
-    // turning onto the target, and the chase camera banks with it, so
-    // the frame came out tilted over empty sea with the smoke column
-    // filling one edge like a wall. The approach frame shows the
-    // marked circle, the island, and a level aircraft.
+    // Stop at the release moment, wings level, marker ahead: the
+    // predicted impact is on the circle, so the frame shows the green
+    // marker on the target, the island, and a level aircraft — the
+    // parcel is already away and falling. Stopping earlier showed a
+    // red marker far short of the circle and an empty approach.
     drive(flight, mission, MAX_SECONDS, (f, m) => {
       if (!f.airborne || m.current >= m.objectives.length) return false;
       const obj = m.objectives[m.current];
       if (obj.kind !== 'drop') return false;
-      const dist = Math.hypot(obj.x - f.x, obj.z - f.z);
-      if (dist > 220) return false;
       if (Math.abs(f.bank) > 0.12) return false;
       const bearing = Math.atan2(obj.z - f.z, obj.x - f.x);
-      return Math.abs(wrapAngle(bearing - f.heading)) < 0.3;
+      if (Math.abs(wrapAngle(bearing - f.heading)) > 0.3) return false;
+      const impact = mission.predictImpactPoint(f);
+      return Math.hypot(impact.x - obj.x, impact.z - obj.z) <= obj.radius;
     }, hooks);
-    return { screen: 'play', note: 'lined up on the first drop circle' };
+    // One breath more: the autopilot releases on the next step, so the
+    // frame catches the parcel just away and falling, not the instant
+    // before the release.
+    drive(flight, mission, 0.1, null, hooks);
+    return { screen: 'play', note: 'parcel away, marker on the circle' };
   }
   if (name === 'landing') {
     // Short final AFTER all eight rings, not the takeoff roll: the
     // old condition (near the threshold and low) also fired two
     // seconds after takeoff, while the aircraft was climbing out —
     // the frame looked like a landing but the HUD said RING 1/8.
+    // Lined up, not turning: the first version stopped mid-turn onto
+    // final, heading 023, with the last green ring dead ahead and
+    // the runway off to one side. Close in, on the runway heading,
+    // the strip fills the view and the rings are behind the aircraft.
     drive(flight, mission, MAX_SECONDS, (f, m) => {
       if (!f.airborne || m.ringsPassed < 8) return false;
       const d = Math.hypot(f.x - (STRIPS[0].x - STRIPS[0].length / 2), f.z - STRIPS[0].z);
-      return d < 300 && f.y < HOME_APRON_Y + 55;
+      if (d > 130 || f.y > HOME_APRON_Y + 40) return false;
+      return Math.abs(wrapAngle(STRIPS[0].heading - f.heading)) < 0.15;
     }, hooks);
-    return { screen: 'play', note: 'final approach, home strip ahead' };
+    return { screen: 'play', note: 'final approach, home strip ahead', camera: 'cockpit' };
   }
   // 'complete': fly the whole rings sortie and land home.
   drive(flight, mission, MAX_SECONDS, (f, m) => (m.done || f.crashed), hooks);

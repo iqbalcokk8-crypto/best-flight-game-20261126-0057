@@ -235,16 +235,29 @@ export function buildRings(scene) {
   return { group, meshes };
 }
 
-// Mark a ring passed (green) or next (pulsing orange); the rest stay dim.
-export function paintRings(meshes, nextIndex, passedCount) {
+// Mark a ring passed (green) or next (coloured by the pilot's speed
+// against that ring's band, so the speed test reads at a glance);
+// the rest stay dim. Passed: green. Next: green in the band, orange
+// too slow, red too fast. The score is unchanged — the colour is the
+// feedback, not the rule.
+export function paintRings(meshes, nextIndex, passedCount, speed) {
   for (let i = 0; i < meshes.length; i += 1) {
     const mat = meshes[i].material;
     if (i < passedCount) {
       mat.color.setHex(0x2fae5f);
       mat.emissive.setHex(0x0a6626);
     } else if (i === nextIndex) {
-      mat.color.setHex(0xff8c2a);
-      mat.emissive.setHex(0xcc5500);
+      const band = RINGS[i].band;
+      if (speed >= band[0] && speed <= band[1]) {
+        mat.color.setHex(0x2fae5f);
+        mat.emissive.setHex(0x0a6626);
+      } else if (speed < band[0]) {
+        mat.color.setHex(0xff8c2a);
+        mat.emissive.setHex(0xcc5500);
+      } else {
+        mat.color.setHex(0xff3c2a);
+        mat.emissive.setHex(0x881100);
+      }
     } else {
       mat.color.setHex(0x8a6a52);
       mat.emissive.setHex(0x332211);

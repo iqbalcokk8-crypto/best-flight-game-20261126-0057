@@ -115,6 +115,7 @@ export function createFlight() {
     stalled: false,
     crashed: false,
     landed: false,
+    engineOff: false,
   };
 
   function reset() {
@@ -134,6 +135,7 @@ export function createFlight() {
     state.stalled = false;
     state.crashed = false;
     state.landed = false;
+    state.engineOff = false;
   }
 
   // input: { pitch: -1..1 (stick back = climb), roll: -1..1,
@@ -143,12 +145,19 @@ export function createFlight() {
     if (state.crashed) return events;
     state.time += dt;
 
-    // Throttle: fuel gone means the engine is out, whatever the lever says.
-    if (state.fuel <= 0 && state.throttle > 0) {
+    // Throttle: a dead engine stays dead. Once the fuel is gone the
+    // lever does nothing — the aircraft is a glider from here on,
+    // whatever the pilot does with the throttle.
+    if (state.fuel <= 0 && !state.engineOff) {
+      state.engineOff = true;
       state.throttle = 0;
       events |= EVENT_FUEL_EMPTY;
     }
-    state.throttle = clamp(state.throttle + input.throttle * dt, 0, 1);
+    if (state.engineOff) {
+      state.throttle = 0;
+    } else {
+      state.throttle = clamp(state.throttle + input.throttle * dt, 0, 1);
+    }
 
     // Wind pushes the airframe sideways, always.
     const wind = windAt(state.time);
@@ -166,7 +175,12 @@ export function createFlight() {
 
     // Speed: the engine pulls toward its throttle speed; climbing bleeds
     // speed, diving gains it, banking costs a little. Damage costs a lot.
-    const wantSpeed = FLIGHT.minCruise + state.throttle * (FLIGHT.maxCruise - FLIGHT.minCruise);
+    // With the engine off there is no pull at all — wantSpeed is 0 and
+    // only a dive buys speed back, which is what makes gliding a skill.
+    const enginePower = state.engineOff ? 0 : state.throttle;
+    const wantSpeed = enginePower > 0
+      ? FLIGHT.minCruise + enginePower * (FLIGHT.maxCruise - FLIGHT.minCruise)
+      : 0;
     let speed = state.speed + (wantSpeed - state.speed) * FLIGHT.speedApproach * dt;
     speed -= Math.sin(state.pitch) * (state.pitch > 0 ? FLIGHT.climbBleed : FLIGHT.diveGain) * dt;
     speed -= Math.abs(state.bank) * FLIGHT.bankBleed * dt;

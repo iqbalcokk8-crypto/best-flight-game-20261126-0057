@@ -30,6 +30,43 @@ export function createHud(doc) {
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
+    // --- Heading compass tape (top strip) ---
+    // A window of headings around the nose, ticks every 15 deg, cardinals
+    // labelled — the pilot reads where the nose points, not just a number.
+    // The game's heading 0 is east (+x), so the compass adds 90: the
+    // runway heading reads 090 E, matching the briefing.
+    const headingDegTape = (((flight.heading * 180) / Math.PI + 90) % 360 + 360) % 360;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(4, 2, w - 8, 14);
+    ctx.clip();
+    ctx.font = 'bold 9px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    for (let off = -60; off <= 60; off += 15) {
+      const deg = Math.round((headingDegTape + off + 360) % 360);
+      const x = w / 2 + off * 2.4;
+      const isCardinal = deg % 45 === 0;
+      ctx.strokeStyle = isCardinal ? '#ffb347' : '#5a6a78';
+      ctx.lineWidth = isCardinal ? 2 : 1;
+      ctx.beginPath();
+      ctx.moveTo(x, 3);
+      ctx.lineTo(x, isCardinal ? 12 : 9);
+      ctx.stroke();
+      if (isCardinal) {
+        ctx.fillStyle = '#f2e8d5';
+        ctx.fillText(headingLabel(deg), x, 14);
+      }
+    }
+    ctx.restore();
+    // Centre caret: the nose.
+    ctx.fillStyle = '#ff5a3c';
+    ctx.beginPath();
+    ctx.moveTo(w / 2 - 4, 16);
+    ctx.lineTo(w / 2 + 4, 16);
+    ctx.lineTo(w / 2, 21);
+    ctx.closePath();
+    ctx.fill();
+
     // --- Attitude ball (left) ---
     const cx = 62;
     const cy = h / 2;
@@ -139,7 +176,8 @@ export function createHud(doc) {
   }
 
   function update(flight, mission, cameraMode, banner) {
-    const headingDeg = ((flight.heading * 180) / Math.PI % 360 + 360) % 360;
+    // Heading 0 is east in the game's world, so the compass adds 90.
+    const headingDeg = (((flight.heading * 180) / Math.PI + 90) % 360 + 360) % 360;
     setText('hud-alt', `${Math.round(flight.y * M_TO_FT)} FT`);
     setText('hud-spd', `${Math.round(flight.speed * MS_TO_KT)} KT`);
     setText('hud-hdg', `${String(Math.round(headingDeg)).padStart(3, '0')}° ${headingLabel(headingDeg)}`);
@@ -156,7 +194,8 @@ export function createHud(doc) {
     el('hud-damage').style.display = flight.damage > 0 ? 'block' : 'none';
     setText('hud-damage', `DAMAGE ${Math.round(flight.damage)}%`);
 
-    // Ring speed band: show where the needle sits in the band.
+    // Ring speed band: show where the needle sits in the band —
+    // green in it, amber too slow, red too fast.
     const obj = mission.currentObjective();
     const bandEl = el('hud-band');
     if (obj !== null && obj.kind === 'ring') {
@@ -165,11 +204,18 @@ export function createHud(doc) {
       const kt = flight.speed * MS_TO_KT;
       const inBand = kt >= lo && kt <= hi;
       bandEl.style.display = 'block';
-      bandEl.textContent = `RING ${obj.index + 1} BAND ${lo}–${hi} KT ${inBand ? '● IN BAND' : '○ OUT'}`;
+      bandEl.textContent = `RING ${obj.index + 1} BAND ${lo}–${hi} KT ${inBand ? '● IN BAND' : kt < lo ? '◐ TOO SLOW' : '● TOO FAST'}`;
       bandEl.classList.toggle('in', inBand);
+      bandEl.classList.toggle('slow', !inBand && kt < lo);
     } else {
       bandEl.style.display = 'none';
     }
+
+    // Engine out: the fuel is gone and the lever does nothing — say so
+    // plainly, every frame, until the aircraft is on the ground.
+    const engineEl = el('hud-engine');
+    engineEl.style.display = flight.engineOff ? 'block' : 'none';
+    if (flight.engineOff) engineEl.textContent = 'ENGINE OUT — GLIDE';
 
     // Banner: warnings and celebrations, newest wins.
     const bannerEl = el('banner');

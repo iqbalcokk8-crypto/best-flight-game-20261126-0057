@@ -8,8 +8,8 @@
 import * as THREE from 'three';
 import { STEP, BEST_KEY, GAME_TITLE, SORTIES, SORTIE_ORDER } from './config.js';
 import { createRandom } from './random.js';
-import { createFlight, EVENT_STALL, EVENT_TOUCHDOWN, EVENT_CRASH, EVENT_FUEL_EMPTY, EVENT_TAKEOFF, EVENT_HARD_LANDING } from './flight.js';
-import { createMission, MISSION_RING, MISSION_DROP, MISSION_LAND, MISSION_DONE, MISSION_PERFECT } from './missions.js';
+import { createFlight, EVENT_STALL, EVENT_TOUCHDOWN, EVENT_CRASH, EVENT_FUEL_EMPTY, EVENT_TAKEOFF, EVENT_HARD_LANDING, terrainHeight } from './flight.js';
+import { createMission, MISSION_RING, MISSION_DROP, MISSION_LAND, MISSION_DONE, MISSION_PERFECT, MISSION_RELEASED } from './missions.js';
 import { buildSea, buildTerrain, buildIslands, buildStrips, buildRings, buildSky, buildDropMarkers, paintRings } from './terrain.js';
 import { buildPlane, posePlane } from './plane.js';
 import { createView, CAMERA_CHASE, CAMERA_COCKPIT } from './render.js';
@@ -59,30 +59,61 @@ function saveBest(value) {
   }
 }
 
-// Falling parcels: small sacks the pilot drops, tumbling to the ground.
-const parcels = [];
-function spawnParcel(x, y, z) {
-  const mesh = new THREE.Mesh(
-    new THREE.BoxGeometry(1.2, 0.9, 0.9),
-    new THREE.MeshStandardMaterial({ color: 0x8a6f4d, roughness: 1 }),
-  );
-  mesh.position.set(x, y - 2, z);
-  view.scene.add(mesh);
-  parcels.push({ mesh, vy: 0 });
-}
-
-function stepParcels(dt) {
-  for (let i = parcels.length - 1; i >= 0; i -= 1) {
-    const p = parcels[i];
-    p.vy -= 9.81 * dt;
-    p.mesh.position.y += p.vy * dt;
-    p.mesh.rotation.x += dt * 2;
-    p.mesh.rotation.z += dt * 1.4;
-    if (p.mesh.position.y <= 1) {
-      view.scene.remove(p.mesh);
-      parcels.splice(i, 1);
+// Falling parcels: the mission owns the physics (position, velocity,
+// spin); this only draws them. One mesh per parcel in flight, removed
+// when the parcel lands — so what the pilot sees is exactly what the
+// mission scores.
+const parcelMeshes = new Map();
+function syncParcelMeshes() {
+  const live = mission.state.parcelsInFlight;
+  for (const parcel of live) {
+    let mesh = parcelMeshes.get(parcel);
+    if (mesh === undefined) {
+      mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(1.2, 0.9, 0.9),
+        new THREE.MeshStandardMaterial({ color: 0x8a6f4d, roughness: 1 }),
+      );
+      view.scene.add(mesh);
+      parcelMeshes.set(parcel, mesh);
+    }
+    mesh.position.set(parcel.x, parcel.y, parcel.z);
+    mesh.rotation.x = parcel.spin;
+    mesh.rotation.z = parcel.spin * 0.7;
+  }
+  for (const [parcel, mesh] of parcelMeshes) {
+    if (!live.includes(parcel)) {
+      view.scene.remove(mesh);
+      parcelMeshes.delete(parcel);
     }
   }
+}
+function clearParcelMeshes() {
+  for (const mesh of parcelMeshes.values()) view.scene.remove(mesh);
+  parcelMeshes.clear();
+}
+
+// Predicted impact marker: where a parcel released right now would
+// land, drawn on the ground. Green on the circle, amber close, red
+// far — the pilot reads the lead instead of guessing it.
+const impactMarker = new THREE.Mesh(
+  new THREE.RingGeometry(5, 7, 32),
+  new THREE.MeshBasicMaterial({ color: 0xffd23c, side: THREE.DoubleSide, transparent: true, opacity: 0.9 }),
+);
+impactMarker.rotation.x = -Math.PI / 2;
+impactMarker.visible = false;
+view.scene.add(impactMarker);
+function updateImpactMarker() {
+  const obj = mission.currentObjective();
+  const show = obj !== null && obj.kind === 'drop' && mission.state.parcelsLeft > 0 && flight.state.airborne;
+  if (!show) {
+    impactMarker.visible = false;
+    return;
+  }
+  const impact = mission.predictImpactPoint(flight.state);
+  const d = Math.hypot(impact.x - obj.x, impact.z - obj.z);
+  impactMarker.position.set(impact.x, terrainHeight(impact.x, impact.z) + 0.7, impact.z);
+  impactMarker.material.color.setHex(d <= obj.radius ? 0x2fae5f : d <= obj.radius * 2.5 ? 0xffd23c : 0xff3c2a);
+  impactMarker.visible = true;
 }
 
 function showScreen(name) {
@@ -115,7 +146,10 @@ function fillEndScreen(complete) {
 function runShot(name) {
   const sortieId = name === 'drop' ? 'parcels' : 'rings';
   mission = createMission(sortieId);
-  const staged = stageShot(name, flight, mission, { onDrop: spawnParcel });
+  clearParcelMeshes();
+  const staged = stageShot(name, flight, mission, {});
+  const shotCamera = staged.camera === 'cockpit' ? CAMERA_COCKPIT : CAMERA_CHASE;
+  view.setCamera(shotCamera);
   let painted = 0;
   function paint() {
     // Warm the chase camera up so it sits behind the plane on the
@@ -125,8 +159,10 @@ function runShot(name) {
     }
     posePlane(planeRig, flight.state, flight.state.time);
     view.update(flight.state, 1 / 60, flight.state.time);
-    paintRings(rings.meshes, mission.state.current, mission.state.ringsPassed);
-    hud.update(flight.state, mission, CAMERA_CHASE, bannerForShot(name, mission));
+    paintRings(rings.meshes, mission.state.current, mission.state.ringsPassed, flight.state.speed);
+    syncParcelMeshes();
+    updateImpactMarker();
+    hud.update(flight.state, mission, shotCamera, bannerForShot(name, mission));
     if (staged.screen === 'complete') {
       const score = mission.state.score;
       if (score > readBest()) saveBest(score);
@@ -145,8 +181,9 @@ function runShot(name) {
 function bannerForShot(name, mission) {
   if (name === 'cover') return { text: 'PERFECT RING +100', kind: 'good' };
   if (name === 'drop') {
-    // The drop shot is staged on the approach, before the parcel
-    // leaves — the banner must say so, not claim a scored drop.
+    // The drop shot is staged at the release moment — the banner must
+    // say the parcel is away, not claim a scored drop.
+    if (mission.state.parcelsInFlight.length > 0) return { text: 'PARCEL AWAY — WATCH IT LAND', kind: 'info' };
     return mission.state.dropsScored >= 1
       ? { text: 'DROP ON TARGET +132', kind: 'good' }
       : { text: 'DROP 1/3 — LINED UP ON THE MARKED CIRCLE', kind: 'info' };
@@ -175,6 +212,7 @@ function runGame() {
     sortieId = id;
     flight.reset();
     mission = createMission(id);
+    clearParcelMeshes();
     screen = 'play';
     showScreen('none');
     announce(`${SORTIES[id].name}. ${SORTIES[id].blurb}`);
@@ -245,11 +283,10 @@ function runGame() {
     const stick = input.read();
     if (screen !== 'play') return;
     if (stick.drop) {
-      const dropped = mission.dropParcel(flight.state);
-      if (dropped !== 0) {
-        spawnParcel(flight.state.x, flight.state.y, flight.state.z);
+      const res = mission.dropParcel(flight.state);
+      if ((res & MISSION_RELEASED) !== 0) {
         audio.drop();
-        setBanner(mission.state.lastMessage, 'good');
+        setBanner(mission.state.lastMessage, 'info');
       } else if (mission.state.parcelsLeft > 0 && mission.currentObjective() !== null && mission.currentObjective().kind === 'drop') {
         setBanner(mission.state.lastMessage || 'NOTHING TO DROP HERE', 'warn');
       }
@@ -311,10 +348,11 @@ function runGame() {
       cloud.position.x += cloud.userData.drift * dt;
       if (cloud.position.x > 1300) cloud.position.x = -1300;
     }
-    stepParcels(dt);
+    syncParcelMeshes();
+    updateImpactMarker();
     posePlane(planeRig, flight.state, nowSeconds);
     view.update(flight.state, dt, nowSeconds);
-    paintRings(rings.meshes, mission.state.current, mission.state.ringsPassed);
+    paintRings(rings.meshes, mission.state.current, mission.state.ringsPassed, flight.state.speed);
     const sock = view.scene.getObjectByName('windsock');
     if (sock !== null) sock.rotation.y = -flight.state.time * 0.1;
     audio.update(flight.state);

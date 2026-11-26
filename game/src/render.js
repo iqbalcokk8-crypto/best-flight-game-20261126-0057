@@ -78,10 +78,14 @@ export function createView(canvas) {
       camera.updateProjectionMatrix();
       const fx = Math.cos(flight.heading);
       const fz = Math.sin(flight.heading);
+      // Ahead of the prop and above the nose line: inside the fuselage
+      // the camera would see nothing but orange plastic and a prop
+      // blade sweeping the frame. Here it is the pilot's forward
+      // view — runway, rings, horizon — with the nose at the bottom.
       camera.position.set(
-        flight.x + fx * 1.6 + sh.x,
-        flight.y + 0.9 + sh.y,
-        flight.z + fz * 1.6,
+        flight.x + fx * 4.2 + sh.x,
+        flight.y + 1.5 + sh.y,
+        flight.z + fz * 4.2,
       );
       camera.up.set(0, 1, 0);
       camera.lookAt(
