@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SENJA SKY COURIER — Sunset Island Mail Plane</title>
+<style>
+  :root {
+    --ink: #f2e8d5;
+    --muted: #c9b8a0;
+    --amber: #ffb347;
+    --amber-dim: #c98a3a;
+    --green: #7ee0a3;
+    --red: #ff5a3c;
+    --panel: rgba(12, 16, 22, 0.82);
+    --panel-line: rgba(255, 179, 71, 0.55);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #f7a55c; color: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .hidden { display: none !important; }
+
+  /* --- HUD --- */
+  #hud { position: fixed; inset: 0; pointer-events: none; font-family: ui-monospace, 'SF Mono', Menlo, monospace; }
+  .hud-box { position: absolute; background: var(--panel); border: 1px solid var(--panel-line); border-radius: 10px; padding: 10px 14px; backdrop-filter: blur(2px); }
+  #hud-flight { top: 12px; left: 12px; display: flex; gap: 22px; }
+  .readout { font-size: 11px; color: var(--muted); letter-spacing: 1px; }
+  .readout b { display: block; font-size: 24px; color: var(--ink); letter-spacing: 0; margin-top: 2px; }
+  #hud-hdg b { color: var(--amber); }
+  #hud-right { top: 12px; right: 12px; text-align: right; min-width: 240px; }
+  #hud-score { font-size: 22px; font-weight: 800; color: var(--amber); }
+  #hud-sortie { font-size: 11px; letter-spacing: 2px; color: var(--muted); }
+  .bar-row { display: flex; align-items: center; gap: 8px; margin-top: 7px; font-size: 11px; color: var(--muted); }
+  .bar-track { flex: 1; height: 9px; background: #222a33; border-radius: 5px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 5px; background: var(--green); }
+  #bar-fuel { background: var(--amber); }
+  #bar-fuel.low { background: var(--red); }
+  #bar-damage { background: var(--red); }
+  #bar-throttle { background: #7ec8e0; }
+  #hud-mission { top: 12px; left: 50%; transform: translateX(-50%); max-width: 560px; text-align: center; }
+  #hud-objective { font-size: 14px; font-weight: 700; color: var(--ink); }
+  #hud-timer { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  #hud-band { display: none; margin-top: 4px; font-size: 13px; font-weight: 800; color: var(--red); }
+  #hud-band.in { color: var(--green); }
+  #hud-damage { display: none; margin-top: 4px; font-size: 13px; font-weight: 800; color: var(--red); }
+  #hud-cam { position: absolute; left: 12px; bottom: 138px; font-size: 11px; color: var(--muted); background: var(--panel); border: 1px solid var(--panel-line); border-radius: 8px; padding: 6px 10px; }
+  #instruments { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); width: 360px; height: 110px; }
+  #banner { position: absolute; left: 50%; top: 22%; transform: translateX(-50%) scale(0.9); font-size: 30px; font-weight: 900; letter-spacing: 2px; opacity: 0; transition: opacity 120ms linear, transform 120ms linear; text-shadow: 0 2px 12px rgba(0,0,0,0.6); white-space: nowrap; }
+  #banner.show { opacity: 1; transform: translateX(-50%) scale(1); }
+  #banner.good { color: var(--green); }
+  #banner.warn { color: var(--red); }
+  #banner.info { color: var(--amber); }
+  #banner.bad { color: var(--red); }
+  #hud-help { position: absolute; right: 12px; bottom: 12px; font-size: 11px; color: var(--muted); background: var(--panel); border: 1px solid var(--panel-line); border-radius: 8px; padding: 8px 10px; text-align: right; line-height: 1.7; }
+
+  /* --- Screens --- */
+  .screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(180deg, rgba(60, 20, 40, 0.55), rgba(20, 10, 30, 0.72)); }
+  .card { background: rgba(16, 20, 28, 0.92); border: 1px solid var(--panel-line); border-radius: 16px; padding: 28px 34px; max-width: 620px; text-align: center; box-shadow: 0 12px 48px rgba(0,0,0,0.5); }
+  .card h1 { margin: 0 0 4px; font-size: 40px; letter-spacing: 3px; color: var(--amber); }
+  .card h2 { margin: 0 0 10px; font-size: 30px; letter-spacing: 2px; color: var(--amber); }
+  .card h2.bad { color: var(--red); }
+  .card h2.good { color: var(--green); }
+  .tagline { color: var(--muted); font-size: 15px; margin: 0 0 20px; }
+  .missions { display: flex; gap: 12px; margin: 0 0 18px; }
+  .mission-btn { flex: 1; pointer-events: auto; cursor: pointer; background: #232c38; border: 2px solid #3a4550; border-radius: 12px; padding: 14px 10px; color: var(--ink); font-family: inherit; }
+  .mission-btn:hover { border-color: var(--amber); }
+  .mission-btn.selected { border-color: var(--amber); background: #33291a; }
+  .mission-btn b { display: block; font-size: 16px; letter-spacing: 1px; color: var(--amber); margin-bottom: 6px; }
+  .mission-btn span { font-size: 12px; color: var(--muted); line-height: 1.5; }
+  .controls { font-size: 13px; color: var(--muted); line-height: 1.9; margin-bottom: 16px; }
+  .controls b { color: var(--ink); }
+  #best-line { font-size: 13px; color: var(--amber); letter-spacing: 2px; }
+  .big-btn { pointer-events: auto; cursor: pointer; background: var(--amber); color: #221505; border: 0; border-radius: 10px; padding: 13px 30px; font-size: 17px; font-weight: 800; letter-spacing: 1px; font-family: inherit; }
+  .big-btn:hover { filter: brightness(1.1); }
+  #end-score { font-size: 24px; font-weight: 800; color: var(--amber); margin: 8px 0; }
+  #end-detail { color: var(--muted); font-size: 14px; line-height: 1.7; margin-bottom: 18px; }
+  #end-sortie { letter-spacing: 3px; color: var(--muted); font-size: 12px; }
+  .hint { margin-top: 16px; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<canvas id="game" aria-label="Senja Sky Courier: fly the mail plane across a sunset archipelago"></canvas>
+<p id="status" role="status" aria-live="polite"></p>
+
+<div id="hud" class="hidden">
+  <div id="hud-flight" class="hud-box">
+    <div class="readout">ALT<b id="hud-alt">0 FT</b></div>
+    <div class="readout">SPD<b id="hud-spd">0 KT</b></div>
+    <div class="readout">HDG<b id="hud-hdg">000° N</b></div>
+  </div>
+  <div id="hud-mission" class="hud-box">
+    <div id="hud-objective">Choose a sortie</div>
+    <div id="hud-timer">0:00</div>
+    <div id="hud-band"></div>
+    <div id="hud-damage"></div>
+  </div>
+  <div id="hud-right" class="hud-box">
+    <div id="hud-sortie">RINGS</div>
+    <div id="hud-score">SCORE 0</div>
+    <div class="bar-row"><span>FUEL</span><div class="bar-track"><div id="bar-fuel" class="bar-fill" style="width:100%"></div></div><span id="hud-fuel">100%</span></div>
+    <div class="bar-row"><span>THR</span><div class="bar-track"><div id="bar-throttle" class="bar-fill" style="width:0%"></div></div></div>
+    <div class="bar-row"><span>DMG</span><div class="bar-track"><div id="bar-damage" class="bar-fill" style="width:0%"></div></div></div>
+  </div>
+  <div id="banner"></div>
+  <div id="hud-cam">CHASE [C]</div>
+  <canvas id="instruments" width="360" height="110"></canvas>
+  <div id="hud-help">↑/W ↓/S pitch · ←/A →/D bank<br>E/Q throttle · SPACE drop<br>C camera · P pause · M mute · R restart</div>
+</div>
+
+<div id="screen-title" class="screen">
+  <div class="card">
+    <h1>SENJA SKY COURIER</h1>
+    <p class="tagline">Pos udara kepulauan senja — antar paket, lewati cincin, mendarat lembut sebelum bahan bakar habis.</p>
+    <div class="missions">
+      <button class="mission-btn selected" id="mission-rings"><b>RING RUN</b><span>8 cincin senja, tiap cincin punya kecepatan ideal. Terbang bersih, hemat bahan bakar.</span></button>
+      <button class="mission-btn" id="mission-parcels"><b>PARCEL DROP</b><span>3 paket untuk 3 pulau. Jatuhkan tepat di lingkaran target dari ketinggian rendah.</span></button>
+      <button class="mission-btn" id="mission-hop"><b>ISLAND HOP</b><span>Mendarat di dua landasan rumput pendek, lalu pulang. Mendarat lembut atau rusak.</span></button>
+    </div>
+    <p class="controls"><b>↑ / W</b> pitch up &nbsp; <b>↓ / S</b> pitch down &nbsp; <b>← / →</b> bank &amp; turn &nbsp; <b>E / Q</b> throttle<br><b>SPACE</b> drop parcel &nbsp; <b>C</b> cockpit / chase &nbsp; <b>B</b> brake &nbsp; <b>P</b> pause &nbsp; <b>M</b> mute</p>
+    <p id="best-line">BEST SCORE 0</p>
+  </div>
+</div>
+
+<div id="screen-briefing" class="screen hidden">
+  <div class="card">
+    <h2 id="briefing-title">RING RUN</h2>
+    <p class="tagline" id="briefing-text"></p>
+    <p class="controls">Lepas landas dari PULAU SENJA, heading 090. Jaga kecepatan di dalam pita hijau tiap cincin untuk PERFECT. Angin bertiup dari barat — lawan dengan bank. Bahan bakar habis = meluncur pulang.</p>
+    <button class="big-btn" id="briefing-go" onclick="document.getElementById('game').dispatchEvent(new PointerEvent('pointerdown'))">TAKE OFF — ENTER</button>
+    <p class="hint">Klik atau tekan Enter. Esc kembali ke menu.</p>
+  </div>
+</div>
+
+<div id="screen-paused" class="screen hidden">
+  <div class="card">
+    <h2>PAUSED</h2>
+    <p class="tagline">Mesin idle. Angin menunggu.</p>
+    <button class="big-btn" onclick="document.getElementById('game').dispatchEvent(new PointerEvent('pointerdown'))">RESUME — P</button>
+  </div>
+</div>
+
+<div id="screen-end" class="screen hidden">
+  <div class="card">
+    <div id="end-sortie">RING RUN</div>
+    <h2 id="end-title">SORTIE COMPLETE</h2>
+    <div id="end-score">SCORE 0</div>
+    <div id="end-detail"></div>
+    <button class="big-btn" onclick="document.getElementById('game').dispatchEvent(new PointerEvent('pointerdown'))">FLY AGAIN — ENTER</button>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.min.js"
+  }
+}
+</script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
