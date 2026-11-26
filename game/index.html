@@ -43,6 +43,8 @@
   #hud-timer { font-size: 12px; color: var(--muted); margin-top: 3px; }
   #hud-band { display: none; margin-top: 4px; font-size: 13px; font-weight: 800; color: var(--red); }
   #hud-band.in { color: var(--green); }
+  #hud-band.slow { color: var(--amber); }
+  #hud-engine { display: none; margin-top: 4px; font-size: 13px; font-weight: 800; color: var(--red); }
   #hud-damage { display: none; margin-top: 4px; font-size: 13px; font-weight: 800; color: var(--red); }
   #hud-cam { position: absolute; left: 12px; bottom: 138px; font-size: 11px; color: var(--muted); background: var(--panel); border: 1px solid var(--panel-line); border-radius: 8px; padding: 6px 10px; }
   #instruments { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); width: 360px; height: 110px; }
@@ -93,6 +95,7 @@
     <div id="hud-objective">Choose a sortie</div>
     <div id="hud-timer">0:00</div>
     <div id="hud-band"></div>
+    <div id="hud-engine"></div>
     <div id="hud-damage"></div>
   </div>
   <div id="hud-right" class="hud-box">
