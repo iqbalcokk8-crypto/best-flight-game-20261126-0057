@@ -96,8 +96,8 @@ function clearParcelMeshes() {
 // land, drawn on the ground. Green on the circle, amber close, red
 // far — the pilot reads the lead instead of guessing it.
 const impactMarker = new THREE.Mesh(
-  new THREE.RingGeometry(5, 7, 32),
-  new THREE.MeshBasicMaterial({ color: 0xffd23c, side: THREE.DoubleSide, transparent: true, opacity: 0.9 }),
+  new THREE.RingGeometry(7, 10, 32),
+  new THREE.MeshBasicMaterial({ color: 0xffd23c, side: THREE.DoubleSide, transparent: true, opacity: 1 }),
 );
 impactMarker.rotation.x = -Math.PI / 2;
 impactMarker.visible = false;

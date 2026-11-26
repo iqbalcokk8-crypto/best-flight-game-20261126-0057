@@ -10,7 +10,7 @@
 //
 // Missions never draw anything. They watch the flight state, report
 // what the pilot should do next, and emit events the game reacts to.
-import { RINGS, RING_RADIUS, RING_SCORE, RING_PERFECT_SCORE, DROP_TARGETS, DROP_MAX_ALT, DROP_SCORE_MAX, STRIPS, SCORE, SORTIES, FLIGHT } from './config.js';
+import { RINGS, RING_RADIUS, RING_SCORE, RING_PERFECT_SCORE, DROP_TARGETS, DROP_MAX_ALT, DROP_SCORE_MAX, STRIPS, SCORE, SORTIES, FLIGHT, STEP } from './config.js';
 import { stripAt, terrainHeight, windAt } from './flight.js';
 
 export const MISSION_RING = 1;
@@ -79,33 +79,45 @@ export function createMission(sortieId) {
     return '';
   }
 
+  // One step of a falling parcel: gravity, drift toward the wind.
+  // Shared by the live simulation and the prediction below, so the
+  // marker and the autopilot aim with exactly the physics that scores
+  // — same start, same step, same wind over the same time.
+  function stepParcel(parcel, wind, dt) {
+    parcel.vy -= FLIGHT.gravity * dt;
+    parcel.vx += (wind.x - parcel.vx) * 0.15 * dt;
+    parcel.vz += (wind.z - parcel.vz) * 0.15 * dt;
+    parcel.x += parcel.vx * dt;
+    parcel.y += parcel.vy * dt;
+    parcel.z += parcel.vz * dt;
+  }
+
   // Where would a parcel released from this flight state land?
-  // The same physics as the falling parcels below, stepped forward:
-  // the parcel keeps the aircraft's velocity, falls under gravity and
-  // drifts toward the wind. The autopilot and the HUD's impact marker
-  // both use this, so what the pilot aims at is what actually happens.
+  // The same physics as the falling parcels below, stepped forward
+  // from the same release point (2 m under the aircraft), with the
+  // wind re-read at each step as the fall goes on. The autopilot and
+  // the HUD's impact marker both use this, so what the pilot aims at
+  // is what actually happens.
   function predictImpactPoint(flight) {
-    const wind = windAt(flight.time);
+    const wind0 = windAt(flight.time);
     const fx = Math.cos(flight.heading) * Math.cos(flight.pitch);
     const fz = Math.sin(flight.heading) * Math.cos(flight.pitch);
     const fy = Math.sin(flight.pitch);
-    let x = flight.x;
-    let y = flight.y;
-    let z = flight.z;
-    let vx = fx * flight.speed + wind.x;
-    let vy = fy * flight.speed;
-    let vz = fz * flight.speed + wind.z;
-    const dt = 0.05;
-    for (let i = 0; i < 400; i += 1) {
-      vy -= FLIGHT.gravity * dt;
-      vx += (wind.x - vx) * 0.15 * dt;
-      vz += (wind.z - vz) * 0.15 * dt;
-      x += vx * dt;
-      y += vy * dt;
-      z += vz * dt;
-      if (y <= terrainHeight(x, z) + 0.5) return { x, z, fallTime: (i + 1) * dt };
+    const parcel = {
+      x: flight.x,
+      y: flight.y - 2,
+      z: flight.z,
+      vx: fx * flight.speed + wind0.x,
+      vy: fy * flight.speed,
+      vz: fz * flight.speed + wind0.z,
+    };
+    let t = 0;
+    for (let i = 0; i < 1200; i += 1) {
+      stepParcel(parcel, windAt(flight.time + t), STEP);
+      t += STEP;
+      if (parcel.y <= terrainHeight(parcel.x, parcel.z) + 0.5) return { x: parcel.x, z: parcel.z, fallTime: t };
     }
-    return { x, z, fallTime: 20 };
+    return { x: parcel.x, z: parcel.z, fallTime: 20 };
   }
 
   // Call when the pilot presses the action key (Space): release a parcel.
@@ -183,12 +195,7 @@ export function createMission(sortieId) {
       const wind = windAt(flight.time);
       for (let i = state.parcelsInFlight.length - 1; i >= 0; i -= 1) {
         const parcel = state.parcelsInFlight[i];
-        parcel.vy -= FLIGHT.gravity * dt;
-        parcel.vx += (wind.x - parcel.vx) * 0.15 * dt;
-        parcel.vz += (wind.z - parcel.vz) * 0.15 * dt;
-        parcel.x += parcel.vx * dt;
-        parcel.y += parcel.vy * dt;
-        parcel.z += parcel.vz * dt;
+        stepParcel(parcel, wind, dt);
         parcel.spin += dt * 2;
         if (parcel.y <= terrainHeight(parcel.x, parcel.z) + 0.5) {
           state.parcelsInFlight.splice(i, 1);

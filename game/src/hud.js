@@ -195,18 +195,19 @@ export function createHud(doc) {
     setText('hud-damage', `DAMAGE ${Math.round(flight.damage)}%`);
 
     // Ring speed band: show where the needle sits in the band —
-    // green in it, amber too slow, red too fast.
+    // green in it, amber too slow, red too fast. The decision is made
+    // in m/s, exactly like the scoring; the knots are only the label,
+    // so the readout can never disagree with the ring by a rounding.
     const obj = mission.currentObjective();
     const bandEl = el('hud-band');
     if (obj !== null && obj.kind === 'ring') {
       const lo = Math.round(obj.band[0] * MS_TO_KT);
       const hi = Math.round(obj.band[1] * MS_TO_KT);
-      const kt = flight.speed * MS_TO_KT;
-      const inBand = kt >= lo && kt <= hi;
+      const inBand = flight.speed >= obj.band[0] && flight.speed <= obj.band[1];
       bandEl.style.display = 'block';
-      bandEl.textContent = `RING ${obj.index + 1} BAND ${lo}–${hi} KT ${inBand ? '● IN BAND' : kt < lo ? '◐ TOO SLOW' : '● TOO FAST'}`;
+      bandEl.textContent = `RING ${obj.index + 1} BAND ${lo}–${hi} KT ${inBand ? '● IN BAND' : flight.speed < obj.band[0] ? '◐ TOO SLOW' : '● TOO FAST'}`;
       bandEl.classList.toggle('in', inBand);
-      bandEl.classList.toggle('slow', !inBand && kt < lo);
+      bandEl.classList.toggle('slow', !inBand && flight.speed < obj.band[0]);
     } else {
       bandEl.style.display = 'none';
     }

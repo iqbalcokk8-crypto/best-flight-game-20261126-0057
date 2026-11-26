@@ -62,13 +62,15 @@ export function autopilot(flight, mission, hooks) {
     // Release when the parcel would actually land on the circle: the
     // parcel keeps the aircraft's speed and drifts with the wind, so
     // the release point is well before the target, not over it. The
-    // prediction is the same physics the mission scores with.
+    // prediction is the same physics the mission scores with, so the
+    // release aims inside three quarters of the circle — the actual
+    // impact lands close to the predicted one, not at its edge.
     // One parcel at a time: drop is a level signal, not an edge, so
     // without this the autopilot would dump every parcel in a second.
     if (flight.y <= DROP_MAX_ALT && mission.predictImpactPoint && mission.state.parcelsInFlight.length === 0) {
       const impact = mission.predictImpactPoint(flight);
       const impactDist = Math.hypot(impact.x - obj.x, impact.z - obj.z);
-      if (impactDist <= obj.radius) input.drop = true;
+      if (impactDist <= obj.radius * 0.75) input.drop = true;
     }
     return input;
   }
@@ -207,7 +209,7 @@ export function stageShot(name, flight, mission, hooks) {
       const bearing = Math.atan2(obj.z - f.z, obj.x - f.x);
       if (Math.abs(wrapAngle(bearing - f.heading)) > 0.3) return false;
       const impact = mission.predictImpactPoint(f);
-      return Math.hypot(impact.x - obj.x, impact.z - obj.z) <= obj.radius;
+      return Math.hypot(impact.x - obj.x, impact.z - obj.z) <= obj.radius * 0.75;
     }, hooks);
     // One breath more: the autopilot releases on the next step, so the
     // frame catches the parcel just away and falling, not the instant
@@ -227,7 +229,7 @@ export function stageShot(name, flight, mission, hooks) {
     drive(flight, mission, MAX_SECONDS, (f, m) => {
       if (!f.airborne || m.ringsPassed < 8) return false;
       const d = Math.hypot(f.x - (STRIPS[0].x - STRIPS[0].length / 2), f.z - STRIPS[0].z);
-      if (d > 130 || f.y > HOME_APRON_Y + 40) return false;
+      if (d > 100 || f.y > HOME_APRON_Y + 40) return false;
       return Math.abs(wrapAngle(STRIPS[0].heading - f.heading)) < 0.15;
     }, hooks);
     return { screen: 'play', note: 'final approach, home strip ahead', camera: 'cockpit' };
